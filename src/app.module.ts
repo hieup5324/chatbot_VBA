@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { UploadModule } from './upload/upload.module';
 import { config } from 'dotenv';
+import { ChatbotModule } from './chatbot/chatbot.module';
 config();
 
 @Module({
-  imports: [UploadModule],
+  imports: [ChatbotModule],
   controllers: [AppController],
   providers: [AppService],
 })

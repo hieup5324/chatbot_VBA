@@ -1,78 +1,12 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { google, drive_v3 } from 'googleapis';
-import * as xml2js from 'xml2js';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import axios from 'axios';
 import * as dayjs from 'dayjs';
 import * as moment from 'moment';
+import { ReadFileService } from './read-file.service';
 
 @Injectable()
-export class UploadService {
-  private driveClient: drive_v3.Drive;
-
-  constructor() {
-    const auth = new google.auth.OAuth2(
-      process.env.CLIENT_ID,
-      process.env.CLIENT_SECRET,
-      process.env.REDIRECT_URI,
-    );
-    auth.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
-    this.driveClient = google.drive({ version: 'v3', auth });
-  }
-
-  async readFileInFolder(folderId: string) {
-    const file = await this.listFileInFolder(folderId);
-    if (!file) throw new BadRequestException('Không có file nào được tìm thấy');
-    const content = await this.readFileFromDrive(file.id);
-    const jsonData = await this.parseXml(content);
-    const messages = this.createMessageFromJson(jsonData);
-    await this.sendNotifyToTelegram(messages);
-    return {
-      msg: 'thành công',
-    };
-  }
-
-  async listFileInFolder(folderId: string): Promise<drive_v3.Schema$File> {
-    try {
-      const response = await this.driveClient.files.list({
-        q: `'${folderId}' in parents`,
-        fields: 'files(id, name)',
-      });
-      const date = new Date();
-      const file = response?.data?.files?.find((file) =>
-        file.name.includes(`${dayjs(date).format('YYYYMMDD')}`),
-      );
-      return file ? file : null;
-    } catch (error) {
-      throw new BadRequestException('Failed to list file');
-    }
-  }
-
-  async readFileFromDrive(fileId: string) {
-    try {
-      const response = await this.driveClient.files.get(
-        { fileId, alt: 'media' },
-        { responseType: 'json' },
-      );
-      return response.data;
-    } catch (error) {
-      throw new BadRequestException('Failed to read file from Drive');
-    }
-  }
-
-  async parseXml(xmlData: any) {
-    return new Promise((resolve, reject) => {
-      const parser = new xml2js.Parser();
-      parser.parseString(xmlData, (err: any, result: any) => {
-        if (err) {
-          console.log(result);
-          reject(err);
-        } else {
-          resolve(result);
-        }
-      });
-    });
-  }
-
+export class ChatbotService {
+  constructor(private readonly readfileService: ReadFileService) {}
   createMessageFromJson(jsonDataArray: any) {
     const messages: string[] = [];
     const rows = jsonDataArray?.Workbook?.Worksheet?.[0]?.Table?.[0]?.Row || [];
@@ -130,15 +64,19 @@ export class UploadService {
     return messages;
   }
 
-  async sendNotifyToTelegram(message: string[]) {
+  async sendNotifyToTelegram() {
     const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const jsonData = await this.readfileService.convertFileToJson();
+    const message = this.createMessageFromJson(jsonData).join('');
     const payload = {
       chat_id: process.env.TELEGRAM_CHAT_ID,
-      text: message.join(''),
+      text: message,
     };
     try {
       await axios.post(url, payload);
+      return 'Gửi thông báo thành công';
     } catch (error) {
+      // console.log(error);
       throw new BadRequestException('Lỗi khi gửi thông báo');
     }
   }
